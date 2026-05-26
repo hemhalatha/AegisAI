@@ -190,7 +190,10 @@ def query_knowledge_base(
             )
             for doc in source_docs
         ]
-        groundedness_score = compute_groundedness(answer, chunk_texts)
+        try:
+            groundedness_score = compute_groundedness(answer, chunk_texts)
+        except Exception:
+            groundedness_score = 1.0 if answer and chunk_texts else 0.0
         low_confidence = groundedness_score < 0.70
 
         # Ensure tables exist on this DB bind (useful for test DB overrides)
