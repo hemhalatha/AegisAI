@@ -10,6 +10,12 @@ TODO for contributors (medium difficulty):
 """
 
 import hashlib
+from collections import Counter, defaultdict, deque
+from datetime import datetime, timedelta, timezone
+from threading import Lock
+from typing import Optional
+
+from app.api.v1.webhooks import deliver_webhook
 import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -231,12 +237,33 @@ def scan_prompt(
             ),
         )
 
+        if result["decision"] == "block":
+            try:
+                deliver_webhook(
+                    db=db,
+                    user_id=current_user.id,
+                    event="guard_block",
+                    payload={
+                        "decision": "block",
+                        "confidence": response.confidence,
+                        "matched_patterns": response.matched_patterns,
+                        "prompt_hash": hashlib.sha256(
+                            request.prompt.encode()
+                        ).hexdigest(),
+                    },
+                    background_tasks=background_tasks,
+                )
+            except Exception:
+                logger.exception("Failed to trigger guard_block webhook delivery")
+
+        return response
+
     except Exception as e:
         logger.exception("Guard scan failed")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An internal error occurred while processing the Guard scan."
+            detail="An internal error occurred while processing the Guard scan.",
         )
 
 
@@ -248,8 +275,6 @@ def guard_health():
         A status payload describing the Guard module availability.
     """
     return {"module": "llm_guard", "status": "available"}
-
-
 
 
 @router.get("/info", tags=["LLM Guard"])
@@ -288,7 +313,7 @@ def get_guard_history(
     """Return the current user's Guard scan history, newest first.
 
     Args:
-        page: Page number to return, starting at 1.
+        skip: Number of items to skip for pagination.
         limit: Maximum number of scan logs to include per page.
         db: Database session used to query scan history.
         current_user: Authenticated user whose history is requested.
@@ -302,7 +327,7 @@ def get_guard_history(
 
     total = base_query.count()
     logs = (
-        base_query.order_by(GuardScanLog.created_at.desc())
+        base_query.order_by(GuardScanLog.scanned_at.desc())  # FIX: use indexed scanned_at
         .offset(skip)
         .limit(limit)
         .all()
@@ -628,7 +653,7 @@ def bulk_scan_prompts(
 
     except Exception as e:
         db.rollback()
-        logger.exception("Bulk guard scan failed")                                     
+        logger.exception("Bulk guard scan failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An internal error occurred while processing the batch Guard scan."
