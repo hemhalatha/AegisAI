@@ -73,6 +73,26 @@ class TestPatchStatus:
         )
         assert resp.status_code == 200
         assert resp.json()["compliance_status"] == "compliant"
+        
+    def test_patch_status_reflected_in_get(self, client):
+        c, system = client
+
+        # Update status
+        patch_resp = c.patch(
+            f"/api/v1/ai-systems/{system.id}/status",
+            json={"compliance_status": "compliant"},
+        )
+
+        assert patch_resp.status_code == 200
+
+        # Fetch updated system
+        get_resp = c.get(f"/api/v1/ai-systems/{system.id}")
+
+        assert get_resp.status_code == 200
+
+        data = get_resp.json()
+
+        assert data["compliance_status"] == "compliant"
 
     def test_patch_status_other_fields_unchanged(self, client):
         c, system = client
