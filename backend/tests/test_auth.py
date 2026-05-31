@@ -49,7 +49,9 @@ def test_register_duplicate_email(client):
     client.post("/api/v1/auth/register", json=user_data)
     response = client.post("/api/v1/auth/register", json=user_data)
     assert response.status_code == 400
-    assert "already registered" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail["field"] == "general"
+    assert "already registered" in detail["message"]
 def test_login_success(client):
     """Test successful login after registration."""
     register_data = {

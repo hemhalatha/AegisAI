@@ -12,12 +12,13 @@ Dependencies:
   - pydantic      : request/response schema validation
 """
 
+import re
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-import re
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
-from datetime import timedelta
 
 from app.core.database import get_db
 from app.core.security import (
@@ -36,22 +37,12 @@ from app.schemas.user import UserCreate, UserResponse, UserUpdateSchema, Token, 
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
-
     @field_validator("new_password")
     @classmethod
     def validate_new_password(cls, v: str) -> str:
-        errors = []
-        if len(v) < 8:
-            errors.append("at least 8 characters")
-        if not re.search(r'[A-Z]', v):
-            errors.append("at least one uppercase letter")
-        if not re.search(r'\d', v):
-            errors.append("at least one digit")
-        if not re.search(r'[!@#$%^&*]', v):
-            errors.append("at least one special character (!@#$%^&*)")
-        if errors:
-            raise ValueError("Password must contain: " + ", ".join(errors))
-        return v
+        from app.core.validators import validate_password_strength
+
+        return validate_password_strength(v)
 
 router = APIRouter()
 users_router = APIRouter()
@@ -77,7 +68,10 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This email is already registered. Please use a different email or try logging in."
+            detail={
+                "field": "general",
+                "message": "This email is already registered. Please use a different email or try logging in."
+            }
         )
 
     try:
@@ -96,7 +90,10 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         # Generic database error handler
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred during registration. Please try again."
+            detail={
+                "field": "general",
+                "message": "An error occurred during registration. Please try again."
+            }
         )
 
 
@@ -118,16 +115,20 @@ def login(
     """
     user = db.query(User).filter(User.email == form_data.username).first()
 
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    # Unify all credential/account failures into a single opaque response
+    # to prevent user enumeration (active status, email existence, password).
+    if (
+        not user
+        or not user.is_active
+        or not verify_password(form_data.password, user.hashed_password)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail={
+                "field": "general",
+                "message": "Invalid email or password"
+            },
             headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
         )
 
     access_token = create_access_token(
@@ -173,7 +174,10 @@ def change_password(
     if not verify_password(payload.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect",
+            detail={
+                "field": "general",
+                "message": "Current password is incorrect"
+            },
         )
 
     current_user.hashed_password = get_password_hash(payload.new_password)

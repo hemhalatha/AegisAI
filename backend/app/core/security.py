@@ -22,7 +22,7 @@ def _get_credentials_exception() -> HTTPException:
     """Helper to return a standardized 401 Unauthorized exception."""
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail={"field": "general", "message": "Could not validate credentials"},
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -71,7 +71,7 @@ def decode_token(token: str) -> Dict[str, Any]:
     except ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired. Please log in again.",
+            detail={"field": "general", "message": "Token has expired. Please log in again."},
             headers={"WWW-Authenticate": "Bearer"},
         )
 
